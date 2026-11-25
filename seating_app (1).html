@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>학급 자리배치</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--primary:#4f6ef7;--text:#222;--muted:#777;--danger:#e5484d;--line:#e3e6ee;--warn:#f5a524;}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","맑은 고딕",sans-serif;background:var(--bg);color:var(--text);}
+header{background:var(--primary);color:#fff;padding:18px 20px;text-align:center}
+header h1{margin:0;font-size:1.4rem}
+main{max-width:1100px;margin:20px auto;padding:0 16px;display:grid;grid-template-columns:340px 1fr;gap:20px}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+h2{font-size:1.05rem;margin:0 0 10px}
+textarea{width:100%;height:200px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:.95rem;resize:vertical;font-family:inherit}
+.hint{font-size:.82rem;color:var(--muted);margin:6px 0 0;line-height:1.5}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+button{background:var(--primary);color:#fff;border:0;border-radius:8px;padding:10px 14px;font-size:.95rem;cursor:pointer}
+button.ghost{background:#eef1fb;color:var(--primary)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.students{max-height:220px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin-top:8px}
+.students label{display:flex;align-items:center;gap:6px;padding:4px 6px;font-size:.92rem;cursor:pointer;border-radius:6px}
+.students label:hover{background:#f5f7fc}
+.opt{margin-top:10px;font-size:.92rem}
+.opt select{padding:6px;border-radius:6px;border:1px solid var(--line);margin-left:6px}
+.status{margin-top:12px;font-size:.9rem;min-height:1.2em;line-height:1.5}
+.ok{color:#1a8f4c}.err{color:var(--danger)}
+.board-title{text-align:center;background:#333;color:#fff;padding:8px;border-radius:8px;margin-bottom:14px;font-weight:600;letter-spacing:4px}
+.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+.seat{aspect-ratio:1.6/1;border-radius:10px;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:.95rem;font-weight:600;background:#fafbfe;text-align:center;padding:4px;word-break:keep-all;overflow:hidden}
+.seat.empty{border-style:dashed;color:#bbb;font-weight:400;background:transparent}
+.seat.designated{background:#fff4e5;border-color:var(--warn)}
+.seat.conflict{background:#ffe5e5;border-color:var(--danger);color:var(--danger)}
+.legend{font-size:.82rem;color:var(--muted);margin-top:12px}
+.upload{margin-top:12px;border:1.5px dashed #cfd5e3;border-radius:10px;padding:14px;text-align:center;transition:background .2s,border-color .2s}
+.upload.drag{background:#eef1fb;border-color:var(--primary)}
+.upload-status{font-size:.85rem;margin-top:8px;min-height:1.2em;line-height:1.5}
+@media(max-width:520px){.grid{gap:6px}.seat{font-size:.8rem}}
+@media print{header,#leftPanel,.row,.legend{display:none!important}main{display:block}}
+</style>
+</head>
+<body>
+<header><h1>🪑 학급 자리배치</h1></header>
+
+<main>
+  <section class="card" id="leftPanel">
+    <h2>1. 학생 명단</h2>
+    <textarea id="names" placeholder="엔터 또는 쉼표(,)로 구분해 입력&#10;예) 김민준, 이서연, 박지호"></textarea>
+    <p class="hint">엔터, 쉼표 중 어느 쪽으로 구분해도 한 명씩 인식합니다.</p>
+    <p class="hint">현재 인원: <b id="count">0</b>명 / 최대 30석 (5행 × 6열)</p>
+    <div class="upload" id="dropZone">
+      <input type="file" id="fileInput" accept=".csv,.txt,.xlsx,.xls" hidden>
+      <button class="ghost" id="fileBtn" type="button">📎 파일 첨부 (CSV · 메모장 · 엑셀)</button>
+      <p class="hint">파일을 이 영역에 끌어다 놓아도 됩니다.</p>
+      <div class="upload-status" id="uploadStatus"></div>
+    </div>
+    <label class="hint" style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer">
+      <input type="checkbox" id="replaceMode"> 기존 명단을 지우고 파일 명단으로 교체
+    </label>
+    <div class="row"><button class="ghost" id="saveBtn">명단 저장</button></div>
+
+    <h2 style="margin-top:20px">2. 떨어뜨릴 지정 학생</h2>
+    <p class="hint">체크한 학생들끼리는 서로 이웃하지 않도록 배치합니다.</p>
+    <div class="students" id="designList"></div>
+
+    <h2 style="margin-top:20px">3. 옵션</h2>
+    <div class="opt">
+      이웃 기준
+      <select id="adjMode">
+        <option value="orth">상하좌우만</option>
+        <option value="diag">대각선 포함</option>
+      </select>
+    </div>
+    <p class="hint">상하좌우만: 지정 학생 최대 15명까지 떨어뜨릴 수 있습니다.<br>대각선 포함: 최대 9명까지 가능합니다.</p>
+
+    <div class="row"><button id="runBtn">자리 배치하기</button></div>
+    <div class="status" id="status"></div>
+  </section>
+
+  <section class="card">
+    <div class="board-title">칠판</div>
+    <div class="grid" id="board"></div>
+    <div class="row">
+      <button class="ghost" id="copyBtn">결과 복사</button>
+      <button class="ghost" id="printBtn">인쇄</button>
+    </div>
+    <p class="legend">🟧 지정 학생 · 🟥 지정 학생끼리 이웃한 자리(오류) · 점선 = 빈자리</p>
+  </section>
+</main>
+
+<script>
+const ROWS = 5, COLS = 6, SEATS = ROWS * COLS;
+const MAX_ORTH = 15, MAX_DIAG = 9; // 5x6 격자에서 서로 떨어뜨릴 수 있는 최대 인원
+const STORAGE_KEY = 'seating-names-v1';
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let designatedNames = new Set();  // 지정 학생 이름 집합
+let lastResult = null;            // { names, dflags, occ, mode, ok }
+
+/* ---------- 명단 / UI ---------- */
+function parseNames() {
+  // 엔터, 쉼표(, 또는 ，), 가운뎃점(·), 세미콜론(;)을 모두 구분자로 인식
+  return $('names').value
+    .split(/[\n,，·;]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function updateCount() {
+  $('count').textContent = parseNames().length;
+}
+
+function renderDesignList() {
+  const list = parseNames();
+  $('designList').innerHTML = list.length
+    ? list.map(n => `<label><input type="checkbox" data-name="${esc(n)}" ${designatedNames.has(n) ? 'checked' : ''}>${esc(n)}</label>`).join('')
+    : '<p class="hint" style="padding:6px">먼저 학생 명단을 입력하세요.</p>';
+}
+
+function setStatus(msg, cls = '') {
+  const el = $('status');
+  el.className = 'status ' + cls;
+  el.textContent = msg;
+}
+
+$('names').addEventListener('input', () => {
+  updateCount();
+  renderDesignList();
+});
+
+$('designList').addEventListener('change', e => {
+  if (e.target.matches('input[type=checkbox]')) {
+    const name = e.target.dataset.name;
+    e.target.checked ? designatedNames.add(name) : designatedNames.delete(name);
+  }
+});
+
+$('saveBtn').addEventListener('click', () => {
+  try {
+    localStorage.setItem(STORAGE_KEY, $('names').value);
+    setStatus('명단을 이 브라우저에 저장했습니다.', 'ok');
+  } catch (e) {
+    setStatus('저장에 실패했습니다. 브라우저 설정을 확인하세요.', 'err');
+  }
+});
+
+/* ---------- 배치 알고리즘 ---------- */
+function adjacent(a, b, mode) {
+  const dr = Math.abs(Math.floor(a / COLS) - Math.floor(b / COLS));
+  const dc = Math.abs((a % COLS) - (b % COLS));
+  return mode === 'orth' ? dr + dc === 1 : Math.max(dr, dc) === 1;
+}
+
+function buildNeighbors(mode) {
+  const nb = [];
+  for (let s = 0; s < SEATS; s++) {
+    nb[s] = [];
+    for (let t = 0; t < SEATS; t++) if (s !== t && adjacent(s, t, mode)) nb[s].push(t);
+  }
+  return nb;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/*
+ * 최소 충돌(min-conflicts) 지역 탐색:
+ * - 무작위로 좌석을 배정한 뒤, 지정 학생끼리 인접한 학생을 골라
+ *   무작위 좌석과 맞바꾸면서 충돌 수가 줄어들거나 같으면 채택합니다.
+ * - 빈자리도 교환 대상이므로 자연스럽게 빈자리로 흩어집니다.
+ */
+function solve(n, dflags, mode) {
+  const nb = buildNeighbors(mode);
+  const designated = [];
+  for (let i = 0; i < n; i++) if (dflags[i]) designated.push(i);
+
+  const seats = shuffle([...Array(SEATS).keys()]);
+  const seatOf = new Array(n);
+  const occ = new Array(SEATS).fill(-1);
+  for (let i = 0; i < n; i++) { seatOf[i] = seats[i]; occ[seats[i]] = i; }
+
+  const conflictCount = () => {
+    let c = 0;
+    for (const i of designated) {
+      for (const t of nb[seatOf[i]]) {
+        const j = occ[t];
+        if (j > i && dflags[j]) c++;
+      }
+    }
+    return c;
+  };
+
+  const badStudents = () => designated.filter(i =>
+    nb[seatOf[i]].some(t => occ[t] >= 0 && dflags[occ[t]])
+  );
+
+  let cur = conflictCount();
+  for (let it = 0; it < 60000 && cur > 0; it++) {
+    const bad = badStudents();
+    const s = bad[Math.floor(Math.random() * bad.length)];
+    const target = Math.floor(Math.random() * SEATS);
+    const u = occ[target];
+    if (u === s) continue;
+
+    const from = seatOf[s];
+    occ[from] = u; occ[target] = s; seatOf[s] = target;
+    if (u >= 0) seatOf[u] = from;
+
+    const next = conflictCount();
+    if (next <= cur || Math.random() < 0.02) {
+      cur = next;
+    } else {
+      // 되돌리기
+      occ[target] = u; occ[from] = s; seatOf[s] = from;
+      if (u >= 0) seatOf[u] = target;
+    }
+  }
+  return { ok: cur === 0, occ };
+}
+
+/* ---------- 실행 / 렌더링 ---------- */
+function run() {
+  const names = parseNames();
+  if (!names.length) return setStatus('학생 명단을 입력하세요.', 'err');
+  if (names.length > SEATS) return setStatus(`인원이 ${SEATS}명을 넘을 수 없습니다. (현재 ${names.length}명)`, 'err');
+
+  const dflags = names.map(n => designatedNames.has(n));
+  const dCount = dflags.filter(Boolean).length;
+  const mode = $('adjMode').value;
+  const limit = mode === 'orth' ? MAX_ORTH : MAX_DIAG;
+
+  if (dCount > limit) {
+    return setStatus(
+      `지정 학생이 ${dCount}명입니다. 이 기준(${mode === 'orth' ? '상하좌우' : '대각선 포함'})에서는 최대 ${limit}명까지만 서로 떨어뜨릴 수 있습니다.`,
+      'err'
+    );
+  }
+
+  const res = solve(names.length, dflags, mode);
+  lastResult = { names, dflags, occ: res.occ, mode, ok: res.ok };
+  renderBoard();
+
+  if (dCount === 0) setStatus('지정 학생이 없어 무작위로 배치했습니다.', 'ok');
+  else if (res.ok) setStatus(`✅ 배치 완료! 지정 학생 ${dCount}명이 서로 이웃하지 않습니다.`, 'ok');
+  else setStatus(`⚠️ 조건을 모두 만족하지 못했습니다. 빨간색 칸을 확인하거나 지정 학생 수를 줄여 다시 시도하세요.`, 'err');
+}
+
+function renderBoard() {
+  if (!lastResult) { $('board').innerHTML = ''; return; }
+  const { names, dflags, occ, mode } = lastResult;
+  const nb = buildNeighbors(mode);
+  let html = '';
+
+  for (let s = 0; s < SEATS; s++) {
+    const i = occ[s];
+    if (i < 0) {
+      html += '<div class="seat empty">빈자리</div>';
+      continue;
+    }
+    const isD = dflags[i];
+    const conflict = isD && nb[s].some(t => occ[t] >= 0 && dflags[occ[t]]);
+    const cls = conflict ? 'conflict' : (isD ? 'designated' : '');
+    html += `<div class="seat ${cls}" title="${esc(names[i])}">${esc(names[i])}</div>`;
+  }
+  $('board').innerHTML = html;
+}
+
+$('runBtn').addEventListener('click', run);
+
+$('copyBtn').addEventListener('click', async () => {
+  if (!lastResult) return setStatus('먼저 자리를 배치하세요.', 'err');
+  const { names, occ } = lastResult;
+  const lines = [];
+  for (let r = 0; r < ROWS; r++) {
+    const row = [];
+    for (let c = 0; c < COLS; c++) {
+      const i = occ[r * COLS + c];
+      row.push(i < 0 ? '-' : names[i]);
+    }
+    lines.push(row.join('\t'));
+  }
+  const text = lines.join('\n');
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus('결과를 클립보드에 복사했습니다. (스프레드시트에 붙여넣기 가능)', 'ok');
+  } catch (e) {
+    alert(text);
+  }
+});
+
+$('printBtn').addEventListener('click', () => window.print());
+
+/* ---------- 파일 첨부 ---------- */
+const SHEETJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+const HEADER_RE = /^(이름|성명|학생|학생이름|name|student)$/i;
+
+function setUpload(msg, cls = '') {
+  const el = $('uploadStatus');
+  el.className = 'upload-status ' + cls;
+  el.textContent = msg;
+}
+
+// 엑셀을 선택했을 때만 SheetJS를 불러옴
+function loadSheetJS() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = SHEETJS_URL;
+    s.onload = () => resolve(window.XLSX);
+    s.onerror = () => reject(new Error('엑셀 모듈을 불러오지 못했습니다. 인터넷 연결을 확인하거나 CSV로 저장해 주세요.'));
+    document.head.appendChild(s);
+  });
+}
+
+// UTF-8로 읽고, 실패하면 엑셀에서 저장한 한글 CSV(EUC-KR/CP949)로 다시 읽음
+function decodeText(buffer) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch (e) {
+    return new TextDecoder('euc-kr').decode(buffer);
+  }
+}
+
+// 따옴표와 줄바꿈을 고려한 CSV 파서
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += c;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === ',') {
+      row.push(field); field = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); rows.push(row);
+      row = []; field = '';
+    } else {
+      field += c;
+    }
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// 행 배열에서 이름만 골라냄
+// - '이름' 같은 머리글이 있으면 그 열만 사용
+// - 번호 열(숫자만 있는 칸)과 머리글 단어는 제외
+// - 한 칸에 쉼표 등으로 여러 이름이 있으면 나눔
+function extractNames(rows) {
+  rows = rows.filter(r => r.some(c => String(c).trim()));
+  if (!rows.length) return [];
+
+  const header = rows[0].map(c => String(c).trim());
+  const col = header.findIndex(c => HEADER_RE.test(c));
+  const body = col >= 0 ? rows.slice(1) : rows;
+
+  const cells = [];
+  body.forEach(r => {
+    if (col >= 0) cells.push(r[col] ?? '');
+    else r.forEach(c => cells.push(c));
+  });
+
+  const names = [];
+  cells.forEach(cell => {
+    String(cell).split(/[\n,，·;\t]+/).forEach(t => {
+      const v = t.trim();
+      if (!v) return;
+      if (/^\d+$/.test(v)) return;
+      if (HEADER_RE.test(v)) return;
+      names.push(v);
+    });
+  });
+  return names;
+}
+
+function mergeNames(newNames, replace) {
+  const existing = replace ? [] : parseNames();
+  const seen = new Set(existing);
+  const added = [];
+  let dup = 0;
+
+  newNames.forEach(n => {
+    if (seen.has(n)) dup++;
+    else { seen.add(n); added.push(n); }
+  });
+
+  if (!newNames.length) return setUpload('파일에서 이름을 찾지 못했습니다. 이름이 있는 열이나 줄을 확인하세요.', 'err');
+
+  $('names').value = [...existing, ...added].join('\n');
+  $('names').dispatchEvent(new Event('input'));
+
+  const msg = `${added.length}명 ${replace ? '교체' : '추가'}됨` +
+              (dup ? ` · 중복 ${dup}명 제외` : '');
+  setUpload('✅ ' + msg, 'ok');
+}
+
+async function handleFile(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const replace = $('replaceMode').checked;
+  try {
+    let names = [];
+    if (ext === 'xlsx' || ext === 'xls') {
+      setUpload('엑셀 파일을 읽는 중…');
+      const XLSX = await loadSheetJS();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      wb.SheetNames.forEach(sn => {
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: '', raw: false });
+        names.push(...extractNames(rows));
+      });
+    } else if (ext === 'csv' || ext === 'txt') {
+      const text = decodeText(await file.arrayBuffer());
+      const rows = ext === 'csv'
+        ? parseCSV(text)
+        : text.split(/\r?\n/).map(line => [line]);
+      names = extractNames(rows);
+    } else {
+      return setUpload('지원하지 않는 형식입니다. CSV, TXT, XLSX 파일을 선택하세요.', 'err');
+    }
+    mergeNames(names, replace);
+  } catch (e) {
+    setUpload(e.message || '파일을 읽지 못했습니다.', 'err');
+  }
+}
+
+$('fileBtn').addEventListener('click', () => $('fileInput').click());
+
+$('fileInput').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (f) handleFile(f);
+  e.target.value = '';
+});
+
+const dropZone = $('dropZone');
+['dragenter', 'dragover'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('drag'); })
+);
+['dragleave', 'drop'].forEach(ev =>
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('drag'); })
+);
+dropZone.addEventListener('drop', e => {
+  const f = e.dataTransfer.files[0];
+  if (f) handleFile(f);
+});
+
+/* ---------- 초기화 ---------- */
+(function init() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) $('names').value = saved;
+  } catch (e) {}
+  updateCount();
+  renderDesignList();
+})();
+</script>
+</body>
+</html>
